@@ -1,6 +1,8 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailDataRequired, default as SendGrid } from '@sendgrid/mail';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class MailService {
@@ -8,9 +10,18 @@ export class MailService {
 
     constructor(
         private readonly configService: ConfigService,
+        @InjectQueue('mail') private mailQueue: Queue
     ) {
         // NOTE : You have to set "esModuleInterop" to true in your tsconfig file to be able to use the default key in import.
         SendGrid.setApiKey(this.configService.get<string>('SENDGRID_API_KEY'));
+    }
+
+    // Email with queue
+    async sendEmail(recipient: string, body: string): Promise<void> {
+        await this.mailQueue.add('mail', {
+            recipient,
+            body,
+        });
     }
 
     private async send(mail: MailDataRequired): Promise<void> {
@@ -18,7 +29,7 @@ export class MailService {
             await SendGrid.send(mail);
             this.logger.log(`Email successfully dispatched to ${mail.to}`);
         } catch (error) {
-            this.logger.error('Error while sending email', error);
+            this.logger.error('Error while sending email', error.message);
             throw error;
         }
     }

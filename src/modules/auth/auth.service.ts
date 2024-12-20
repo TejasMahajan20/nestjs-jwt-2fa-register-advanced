@@ -169,11 +169,15 @@ export class AuthService {
             });
         }
 
-        try {
-            await this.mailService.sendTestEmail(user.email, otp);
-        } catch (error) {
-            this.logger.error(`Error sending otp to : ${user.email}`);
-        }
+        // Send mail with queue
+        await this.mailService.sendEmail(user.email, otp);
+
+        // Send mail without queue
+        // try {
+        //     await this.mailService.sendTestEmail(user.email, otp);
+        // } catch (error) {
+        //     this.logger.error(`Error sending otp to : ${user.email}`);
+        // }
 
         return otp;
     }
