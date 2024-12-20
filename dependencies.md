@@ -7,4 +7,6 @@ npm i --save class-validator class-transformer
 npm i --save @nestjs/jwt
 npm i bcrypt @types/bcrypt
 npm i @sendgrid/mail
+npm i --save @nestjs/bullmq bullmq
+
 ```
