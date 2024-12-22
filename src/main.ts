@@ -11,7 +11,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,            // strips any properties not defined in the DTO
     forbidNonWhitelisted: true, // throws an error if extra properties are present,
-    transform : true
+    transform: true
   }));
 
   const config = new DocumentBuilder()
