@@ -13,6 +13,9 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { MailService } from '../mail/mail.service';
 import { OtpService } from './services/otp.service';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { RedisService } from 'src/common/services/redis.service';
+import { RedisPrefix } from 'src/common/enum/redis-prefix.enum';
+import { RedisExpiry } from 'src/common/enum/redis-expiry.enum';
 
 @Injectable()
 export class AuthService {
@@ -24,6 +27,7 @@ export class AuthService {
         private readonly otpService: OtpService,
         private readonly passwordService: PasswordService,
         private readonly mailService: MailService,
+        private readonly redisService: RedisService,
     ) {
     }
 
@@ -230,6 +234,7 @@ export class AuthService {
         const isNewUser = !userEntity.isEmailVerified;
         if (isNewUser) {
             await this.userService.update({ uuid: userEntity.uuid }, { isEmailVerified: true });
+            return new HttpResponseDto(AuthMessages.Success.EmailVerified);
         }
 
         // If user raised an request to forget; prompt user to reset password
@@ -243,13 +248,14 @@ export class AuthService {
             role: userEntity.role
         }
 
-        const responseData = {
-            accessToken: await this.jwtService.signAsync(payload),
-            payload
-        };;
+        const accessToken = await this.jwtService.signAsync(payload);
+
+        await this.redisService.setWithExpiry(RedisPrefix.TOKEN, userEntity.uuid, accessToken, RedisExpiry.ONE_DAY);
+
+        const responseData = { accessToken, payload };
 
         return new HttpResponseDto(
-            isNewUser ? AuthMessages.Success.EmailVerified : OtpMessages.Success.OtpVerified,
+            OtpMessages.Success.OtpVerified,
             responseData
         );
     }

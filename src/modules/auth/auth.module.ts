@@ -10,6 +10,7 @@ import { UserService } from './services/user.service';
 import { OtpService } from './services/otp.service';
 import { OtpEntity } from './entities/otp.entity';
 import { MailModule } from '../mail/mail.module';
+import { RedisService } from 'src/common/services/redis.service';
 
 @Module({
   imports: [
@@ -31,7 +32,7 @@ import { MailModule } from '../mail/mail.module';
     MailModule
   ],
   controllers: [AuthController],
-  providers: [AuthService, UserService, OtpService, PasswordService],
+  providers: [AuthService, UserService, OtpService, PasswordService, RedisService],
   exports: [UserService]
 })
 export class AuthModule { }
