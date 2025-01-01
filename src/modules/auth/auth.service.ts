@@ -190,6 +190,11 @@ export class AuthService {
         // Validate user already exist or not?
         const userEntity = await this.userService.validateUserByEmail(resendOtpDto.email);
 
+        // Check already verified or not
+        if (userEntity?.otp?.isVerified) {
+            throw new BadRequestException(OtpMessages.Error.AlreadyVerified);
+        }
+
         // if (user?.otp?.modifiedAt && !this.otpService.isMoreThanTwoMinutes(user?.otp?.modifiedAt)) {
         //     throw new ForbiddenException('Please wait 2 minutes before requesting a new OTP.');
         // }
