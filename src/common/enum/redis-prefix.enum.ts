@@ -1,4 +1,5 @@
 export enum RedisPrefix {
-    TOKEN = 'token',
     OTP = 'otp',
+    SESSION = 'session',
+    BLACKLISTED_TOKEN = 'blacklisted_token'
 }

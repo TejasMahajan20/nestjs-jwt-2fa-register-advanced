@@ -16,6 +16,8 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RedisService } from 'src/common/services/redis.service';
 import { RedisPrefix } from 'src/common/enum/redis-prefix.enum';
 import { RedisExpiry } from 'src/common/enum/redis-expiry.enum';
+import { BLACKLISTED } from './constants/variables.constant';
+import { getJwtExpiry, hashToken } from './utils/helpers.util';
 
 @Injectable()
 export class AuthService {
@@ -82,6 +84,20 @@ export class AuthService {
         await this.upsertOtp(userEntity);
 
         return new HttpResponseDto(OtpMessages.Success.OtpSent);
+    }
+
+    // For many sessions at a time
+    async logout(token: string, ttl: number) {
+        if (ttl > 0) {
+            await this.blacklistToken(token, ttl);
+        }
+        return new HttpResponseDto(AuthMessages.Success.LogoutSuccessful);
+    }
+
+    // For one sessions at a time
+    async logout_(userId: string) {
+        await this.deleteSession(userId);
+        return new HttpResponseDto(AuthMessages.Success.LogoutSuccessful);
     }
 
     async forgotPassword(forgotPasswordDto: BaseEmailDto) {
@@ -255,7 +271,8 @@ export class AuthService {
 
         const accessToken = await this.jwtService.signAsync(payload);
 
-        await this.redisService.setWithExpiry(RedisPrefix.TOKEN, userEntity.uuid, accessToken, RedisExpiry.ONE_DAY);
+        // Step to Implement One-Session-at-a-Time
+        await this.storeSession(userEntity.uuid, accessToken);
 
         const responseData = { accessToken, payload };
 
@@ -268,5 +285,34 @@ export class AuthService {
     // Utils
     private isEmailVerified(isEmailVerified: boolean): void {
         if (!isEmailVerified) throw new BadRequestException(AuthMessages.Error.EmailNotVerified);
+    }
+
+    // One-Session-at-a-Time
+    async storeSession(userId: string, token: string): Promise<void> {
+        const hashedToken = hashToken(token);
+        const ttl = getJwtExpiry(process.env.JWT_EXPIRATION_TIME ?? '1d');
+        await this.redisService.setWithExpiry(RedisPrefix.SESSION, userId, hashedToken, ttl);
+    }
+
+    async isTokenValid(userId: string, token: string): Promise<boolean> {
+        const hashedToken = hashToken(token);
+        const sessionToken = await this.redisService.get(RedisPrefix.SESSION, userId);
+        return hashedToken === sessionToken;
+    }
+
+    async deleteSession(userId: string): Promise<void> {
+        await this.redisService.delete(RedisPrefix.SESSION, userId);
+    }
+
+    // Many-Session-at-a-Time
+    async blacklistToken(token: string, ttl: number): Promise<void> {
+        const hashedToken = hashToken(token);
+        await this.redisService.setWithExpiry(RedisPrefix.BLACKLISTED_TOKEN, hashedToken, BLACKLISTED, ttl);
+    }
+
+    async isTokenBlacklisted(token: string): Promise<boolean> {
+        const hashedToken = hashToken(token);
+        const result = await this.redisService.get(RedisPrefix.BLACKLISTED_TOKEN, hashedToken);
+        return result === BLACKLISTED;
     }
 }

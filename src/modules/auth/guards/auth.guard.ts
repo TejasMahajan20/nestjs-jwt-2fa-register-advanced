@@ -11,6 +11,7 @@ import { AuthMessages } from '../constants/messages.constant';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorator/public.decorator';
 import { UserService } from '../services/user.service';
+import { AuthService } from '../auth.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -19,6 +20,7 @@ export class AuthGuard implements CanActivate {
         private reflector: Reflector,
         private configService: ConfigService,
         private userService: UserService,
+        private authService: AuthService,
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -44,14 +46,30 @@ export class AuthGuard implements CanActivate {
                 }
             );
 
-            request.user = payload; // Attach payload to request as 'user'
+            // Token blacklisting
+            // if (await this.authService.isTokenBlacklisted(token)) {
+            //     throw new UnauthorizedException(AuthMessages.Error.RevokedToken);
+            // }
+
+            // One-session-at-a-time
+            if (!await this.authService.isTokenValid(payload.uuid, token)) {
+                throw new UnauthorizedException(AuthMessages.Error.InvalidToken);
+            }
+
+            // Validate user against database
+            const userEntity = await this.userService.validateUserByUuid(payload.uuid);
+
+            request.user = userEntity; // Attach user entity to request as 'user'
+            request.tokenDetails = { token, uuid: payload.uuid, exp: payload.exp }; // Attach tokenDetails to request
+
             return true;
         } catch (error) {
             if (error.name === 'TokenExpiredError') {
                 throw new UnauthorizedException(AuthMessages.Error.TokenExpired);
             }
 
-            throw new UnauthorizedException();
+            // if error.message = undefined it will not included in error response
+            throw new UnauthorizedException(error?.message);
         }
     }
 

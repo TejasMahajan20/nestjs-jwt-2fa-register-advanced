@@ -54,6 +54,7 @@ export const AuthMessages = {
         LogoutFailed: 'An error occurred during logout.',
         TokenNotFound: 'Token not found',
         InvalidToken: 'Invalid token.',
+        RevokedToken: 'Token is revoked.',
         InvalidTokenOrAlreadyLoggedOut: 'Invalid token or already logged out.',
         AccessTokenRequired: 'Access token required to authenticate the request.',
         TokenExpired: 'Token expired.',

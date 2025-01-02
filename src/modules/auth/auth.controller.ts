@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, HttpStatus, Post, Req, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, HttpStatus, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { HttpMessages } from 'src/common/constants/messages.constant';
@@ -11,6 +11,7 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UserService } from './services/user.service';
 import { HttpResponseDto } from 'src/common/dto/http-response.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { Request } from "express";
 
 @Controller()
 export class AuthController {
@@ -57,15 +58,37 @@ export class AuthController {
         return await this.authService.login(signInUserDto);
     }
 
+    // For many sessions at a time
     @Post('logout')
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth('access-token')
     @ApiOperation({
         summary: 'Logout from admin portal',
         description: 'This endpoint will help us to logout from admin portal.'
     })
-    @ApiResponse({ status: HttpStatus.CREATED, description: AuthMessages.Success.LoginSuccessful })
+    @ApiResponse({ status: HttpStatus.CREATED, description: AuthMessages.Success.LogoutSuccessful })
+    @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: AuthMessages.Error.TokenNotFound })
     @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: HttpMessages.Error.InternalServerError })
-    async logout(@Body() signInUserDto: SignInUserDto) {
-        return await this.authService.login(signInUserDto);
+    async logout(@Req() req: Request) {
+        const { token, exp } = req['tokenDetails'];
+        const ttl = exp - Math.floor(Date.now() / 1000);
+        return await this.authService.logout(token, ttl);
+    }
+
+    // For one sessions at a time
+    @Post('logout')
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({
+        summary: 'Logout from admin portal',
+        description: 'This endpoint will help us to logout from admin portal.'
+    })
+    @ApiResponse({ status: HttpStatus.CREATED, description: AuthMessages.Success.LogoutSuccessful })
+    @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: AuthMessages.Error.TokenNotFound })
+    @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: HttpMessages.Error.InternalServerError })
+    async logout_(@Req() req: Request) {
+        const { uuid: userId } = req['tokenDetails'];
+        return await this.authService.logout_(userId);
     }
 
     @Post('verify-otp')
