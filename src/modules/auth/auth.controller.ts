@@ -91,6 +91,22 @@ export class AuthController {
         return await this.authService.logout_(userId);
     }
 
+    @Delete('session')
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({
+        summary: 'Remove selected session',
+        description: 'This endpoint will help us to remove selected session.'
+    })
+    @ApiResponse({ status: HttpStatus.CREATED, description: AuthMessages.Success.SessionRemoved })
+    @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: AuthMessages.Error.TokenNotFound })
+    @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: HttpMessages.Error.InternalServerError })
+    async removeOneNSession(@Req() req: Request) {
+        const { uuid: userId, token } = req['tokenDetails'];
+        await this.authService.removeOneSession(userId, token);
+        return new HttpResponseDto(AuthMessages.Success.SessionRemoved);
+    }
+
     @Post('verify-otp')
     @ApiOperation({
         summary: 'Verify verification key using email and otp.',

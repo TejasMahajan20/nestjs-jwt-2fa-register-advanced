@@ -4,7 +4,7 @@ import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
-  private redisClient: Redis;
+  redisClient: Redis;
 
   constructor(
     private readonly configService: ConfigService
@@ -38,4 +38,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.redisClient.set(`${prefix}:${key}`, value, 'EX', expiry);
   }
 
+  async rpush(prefix: string, key: string, value: string): Promise<number> {
+    return await this.redisClient.lpush(`user:${prefix}:${key}`, `${value}`);
+  }
+
+  async llen(prefix: string, key: string): Promise<number> {
+    return await this.redisClient.llen(`user:${prefix}:${key}`);
+}
 }

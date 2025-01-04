@@ -18,6 +18,7 @@ import { RedisPrefix } from 'src/common/enum/redis-prefix.enum';
 import { RedisExpiry } from 'src/common/enum/redis-expiry.enum';
 import { BLACKLISTED } from './constants/variables.constant';
 import { getJwtExpiry, hashToken } from './utils/helpers.util';
+import { tryCatch } from 'bullmq';
 
 @Injectable()
 export class AuthService {
@@ -69,6 +70,18 @@ export class AuthService {
         const userEntity = await this.userService.validateUserByEmail(signInUserDto.email);
 
         this.isEmailVerified(userEntity?.isEmailVerified);
+
+        // Remove all logged-in session checkbox was ticked
+        // Step to Implement N-Session-at-a-Time
+        if (signInUserDto['removeAllSessions']) {
+            const maxSessions = parseInt(process.env.MAX_SESSIONS || '3', 10);
+            const activeSessions = await this.getSessionCount(userEntity.uuid);
+            if (activeSessions >= maxSessions) {
+                throw new BadRequestException('Maximum sessions reached. Please log out from another session to continue.');
+            }
+        } else {
+            await this.removeAllSession(userEntity.uuid);
+        }
 
         // Validate user password with stored hashed password
         const isMatch = await this.passwordService.comparePasswords(signInUserDto.password, userEntity.password);
@@ -272,7 +285,9 @@ export class AuthService {
         const accessToken = await this.jwtService.signAsync(payload);
 
         // Step to Implement One-Session-at-a-Time
-        await this.storeSession(userEntity.uuid, accessToken);
+        // await this.storeSession(userEntity.uuid, accessToken);
+
+        await this.storeNSession(userEntity.uuid, accessToken);
 
         const responseData = { accessToken, payload };
 
@@ -285,6 +300,46 @@ export class AuthService {
     // Utils
     private isEmailVerified(isEmailVerified: boolean): void {
         if (!isEmailVerified) throw new BadRequestException(AuthMessages.Error.EmailNotVerified);
+    }
+
+    // Store session data in a Redis hash
+    async storeNSession(userId: string, token: string): Promise<void> {
+        const hashedToken = hashToken(token);
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        const sessionMeta = JSON.stringify({ ip: '127.1.1.0', deviceId: "Iphone" });
+        await this.redisService.redisClient.hset(key, hashedToken, sessionMeta);
+    }
+
+    // Remove a session from Redis by token
+    async removeOneSession(userId: string, token: string): Promise<void> {
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        const sessionField = hashToken(token);
+        await this.redisService.redisClient.hdel(key, sessionField);
+    }
+
+    // Remove a session from Redis by token
+    async removeAllSession(userId: string): Promise<void> {
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        await this.redisService.redisClient.del(key);
+    }
+
+    async isInvalidSession(userId: string, token: string) {
+        const hashedToken = hashToken(token);
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        const sessionExists = await this.redisService.redisClient.hget(key, hashedToken);
+        return sessionExists === null;
+    }
+
+
+    // Get the length of a Redis hash
+    async getSessionCount(userId: string): Promise<number> {
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        return await this.redisService.redisClient.hlen(key) || 0;
+    }
+
+    async clearAllSessions(userId: string): Promise<void> {
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        await this.redisService.redisClient.del(key);
     }
 
     // One-Session-at-a-Time

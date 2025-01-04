@@ -51,10 +51,15 @@ export class AuthGuard implements CanActivate {
             //     throw new UnauthorizedException(AuthMessages.Error.RevokedToken);
             // }
 
-            // One-session-at-a-time
-            if (!await this.authService.isTokenValid(payload.uuid, token)) {
+            // N-Session-At-A-Time
+            if (await this.authService.isInvalidSession(payload.uuid, token)) {
                 throw new UnauthorizedException(AuthMessages.Error.InvalidToken);
             }
+
+            // One-session-at-a-time
+            // if (!await this.authService.isTokenValid(payload.uuid, token)) {
+            //     throw new UnauthorizedException(AuthMessages.Error.InvalidToken);
+            // }
 
             // Validate user against database
             const userEntity = await this.userService.validateUserByUuid(payload.uuid);

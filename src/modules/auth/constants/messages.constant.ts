@@ -47,6 +47,7 @@ export const AuthMessages = {
         LoginSuccessful: 'Login successful.',
         LogoutSuccessful: 'Logout successful.',
         EmailVerified: 'Email verified successfully.',
+        SessionRemoved: 'Session removed successfully.',
     },
     Error: {
         RegistrationFailed: 'An error occurred during registration.',
