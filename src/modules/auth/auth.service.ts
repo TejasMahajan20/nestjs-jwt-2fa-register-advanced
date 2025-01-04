@@ -15,14 +15,14 @@ import { OtpService } from './services/otp.service';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RedisService } from 'src/common/services/redis.service';
 import { RedisPrefix } from 'src/common/enum/redis-prefix.enum';
-import { RedisExpiry } from 'src/common/enum/redis-expiry.enum';
 import { BLACKLISTED } from './constants/variables.constant';
 import { getJwtExpiry, hashToken } from './utils/helpers.util';
-import { tryCatch } from 'bullmq';
+import { IDeviceInfo } from './interfaces/device-info.interface';
 
 @Injectable()
 export class AuthService {
-    private readonly logger: Logger = new Logger(AuthService.name);
+    private readonly logger = new Logger(AuthService.name);
+    private readonly maxSessions = parseInt(process.env.MAX_SESSIONS || '3', 10);
 
     constructor(
         private readonly jwtService: JwtService,
@@ -74,13 +74,12 @@ export class AuthService {
         // Remove all logged-in session checkbox was ticked
         // Step to Implement N-Session-at-a-Time
         if (signInUserDto['removeAllSessions']) {
-            const maxSessions = parseInt(process.env.MAX_SESSIONS || '3', 10);
+            await this.removeAllSession(userEntity.uuid);
+        } else {
             const activeSessions = await this.getSessionCount(userEntity.uuid);
-            if (activeSessions >= maxSessions) {
+            if (activeSessions >= this.maxSessions) {
                 throw new BadRequestException('Maximum sessions reached. Please log out from another session to continue.');
             }
-        } else {
-            await this.removeAllSession(userEntity.uuid);
         }
 
         // Validate user password with stored hashed password
@@ -242,7 +241,7 @@ export class AuthService {
         return new HttpResponseDto(OtpMessages.Success.OtpSent);
     }
 
-    async verifyOtp(verifyOtpDto: VerifyOtpDto) {
+    async verifyOtp(verifyOtpDto: VerifyOtpDto, deviceInfo: IDeviceInfo) {
         // Validate user already exist or not?
         const userEntity = await this.userService.validateUserByEmail(verifyOtpDto.email);
 
@@ -287,7 +286,7 @@ export class AuthService {
         // Step to Implement One-Session-at-a-Time
         // await this.storeSession(userEntity.uuid, accessToken);
 
-        await this.storeNSession(userEntity.uuid, accessToken);
+        await this.storeNSession(userEntity.uuid, accessToken, deviceInfo);
 
         const responseData = { accessToken, payload };
 
@@ -303,10 +302,10 @@ export class AuthService {
     }
 
     // Store session data in a Redis hash
-    async storeNSession(userId: string, token: string): Promise<void> {
+    async storeNSession(userId: string, token: string, deviceInfo: IDeviceInfo): Promise<void> {
         const hashedToken = hashToken(token);
         const key = `${RedisPrefix.SESSION}:${userId}`;
-        const sessionMeta = JSON.stringify({ ip: '127.1.1.0', deviceId: "Iphone" });
+        const sessionMeta = JSON.stringify(deviceInfo);
         await this.redisService.redisClient.hset(key, hashedToken, sessionMeta);
     }
 

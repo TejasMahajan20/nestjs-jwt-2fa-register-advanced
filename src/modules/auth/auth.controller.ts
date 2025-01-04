@@ -12,6 +12,8 @@ import { UserService } from './services/user.service';
 import { HttpResponseDto } from 'src/common/dto/http-response.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Request } from "express";
+import { getIpAddress, getUserAgent } from './utils/helpers.util';
+import { IDeviceInfo } from './interfaces/device-info.interface';
 
 @Controller()
 export class AuthController {
@@ -112,8 +114,13 @@ export class AuthController {
         summary: 'Verify verification key using email and otp.',
         description: 'This endpoint will prompt you email and otp to authenticate you'
     })
-    async verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
-        return await this.authService.verifyOtp(verifyOtpDto);
+    async verifyOtp(@Req() req: Request, @Body() verifyOtpDto: VerifyOtpDto) {
+        const deviceInfo : IDeviceInfo = {
+            ip: getIpAddress(req),
+            userAgent: getUserAgent(req),
+            loggedInAt: new Date()
+        }
+        return await this.authService.verifyOtp(verifyOtpDto, deviceInfo);
     }
 
     @Post('resend-otp')

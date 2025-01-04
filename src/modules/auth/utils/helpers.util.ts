@@ -37,8 +37,8 @@ export function getJwtExpiry(expiry: string): number {
     }
 }
 
-export function getIpAddress(req: Request) {
-    return req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || req.connection.remoteAddress;
+export function getIpAddress(req: Request) : string {
+    return req.headers['x-forwarded-for']?.toString() ?? req.socket.remoteAddress ?? req.ip ;
 }
 
 export function getUserAgent(req: Request) {

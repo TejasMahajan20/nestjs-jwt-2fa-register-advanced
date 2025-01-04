@@ -6,7 +6,7 @@ import { Queue } from 'bullmq';
 
 @Injectable()
 export class MailService {
-    private readonly logger: Logger = new Logger(MailService.name);
+    private readonly logger = new Logger(MailService.name);
 
     constructor(
         private readonly configService: ConfigService,
