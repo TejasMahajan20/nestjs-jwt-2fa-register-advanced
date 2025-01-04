@@ -12,6 +12,9 @@ import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorator/public.decorator';
 import { UserService } from '../services/user.service';
 import { AuthService } from '../auth.service';
+import { getAuthStrategy } from '../strategies/auth.strategy';
+import { RedisService } from 'src/common/services/redis.service';
+import { StrategyType } from '../enum/strategy-type.enum';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -21,6 +24,7 @@ export class AuthGuard implements CanActivate {
         private configService: ConfigService,
         private userService: UserService,
         private authService: AuthService,
+        private redisService: RedisService,
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -58,6 +62,12 @@ export class AuthGuard implements CanActivate {
 
             // One-session-at-a-time
             // if (!await this.authService.isTokenValid(payload.uuid, token)) {
+            //     throw new UnauthorizedException(AuthMessages.Error.InvalidToken);
+            // }
+
+            // const strategyType = (process.env.AUTH_STRATEGY || 'blacklisting') as StrategyType;
+            // const authStrategy = getAuthStrategy(strategyType, this.redisService);
+            // if (!await authStrategy.validateToken(payload.uuid, token)) {
             //     throw new UnauthorizedException(AuthMessages.Error.InvalidToken);
             // }
 

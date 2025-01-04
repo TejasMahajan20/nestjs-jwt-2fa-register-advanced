@@ -1,4 +1,4 @@
 export interface IAuthStrategy {
-    validateToken(token: string): Promise<boolean>;
-    handleSession(userId: string, token: string): Promise<void>;
+    validateToken(userId: string, token: string): Promise<boolean>;
+    handleSession(...args: any): Promise<any>;
 }

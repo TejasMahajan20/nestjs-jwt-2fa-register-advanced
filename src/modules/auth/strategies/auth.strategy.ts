@@ -2,61 +2,94 @@ import { RedisService } from "src/common/services/redis.service";
 import { StrategyType } from "../enum/strategy-type.enum";
 import { IAuthStrategy } from "../interfaces/auth-strategy.interface";
 import { Injectable } from "@nestjs/common";
+import { getJwtExpiry, hashToken } from "../utils/helpers.util";
+import { RedisPrefix } from "src/common/enum/redis-prefix.enum";
+import { BLACKLISTED } from "../constants/variables.constant";
+import { IDeviceInfo } from "../interfaces/device-info.interface";
 
 // Blacklisting Strategy
 @Injectable()
 export class BlacklistingStrategy implements IAuthStrategy {
-    constructor(private readonly redisService : RedisService){}
+    constructor(private readonly redisService: RedisService) { }
 
-    async validateToken(token: string): Promise<boolean> {
-        // Check if token is blacklisted
-        return true
+    async validateToken(userId: string, token: string): Promise<boolean> {
+        const hashedToken = hashToken(token);
+        const result = await this.redisService.get(
+            RedisPrefix.BLACKLISTED_TOKEN,
+            hashedToken
+        );
+        return result === BLACKLISTED;
     }
 
-    async handleSession(userId: string, token: string): Promise<void> {
-        // Blacklist old tokens if necessary
+    async handleSession(token: string, ttl: number): Promise<void> {
+        const hashedToken = hashToken(token);
+        await this.redisService.setWithExpiry(
+            RedisPrefix.BLACKLISTED_TOKEN,
+            hashedToken,
+            BLACKLISTED,
+            ttl
+        );
     }
 }
 
 // One-Session-at-a-Time Strategy
 @Injectable()
 export class OneSessionStrategy implements IAuthStrategy {
-    constructor(private readonly redisService : RedisService){}
+    constructor(private readonly redisService: RedisService) { }
 
-    async validateToken(token: string): Promise<boolean> {
-        // Check if token matches the single active session for the user
-        return true
+    async validateToken(userId: string, token: string): Promise<boolean> {
+        const hashedToken = hashToken(token);
+        const sessionToken = await this.redisService.get(
+            RedisPrefix.SESSION,
+            userId
+        );
+        return hashedToken === sessionToken;
     }
 
     async handleSession(userId: string, token: string): Promise<void> {
-        // Invalidate previous session for this user
+        const hashedToken = hashToken(token);
+        const ttl = getJwtExpiry(process.env.JWT_EXPIRATION_TIME ?? '1d');
+        await this.redisService.setWithExpiry(
+            RedisPrefix.SESSION,
+            userId,
+            hashedToken,
+            ttl
+        );
     }
 }
 
 // N-Sessions Strategy
 @Injectable()
 export class NSessionsStrategy implements IAuthStrategy {
-    constructor(private readonly redisService : RedisService){}
+    constructor(private readonly redisService: RedisService) { }
 
-    async validateToken(token: string): Promise<boolean> {
-        // Check if token exists in the list of valid sessions for the user
-        return true
+    async validateToken(userId: string, token: string): Promise<boolean> {
+        const hashedToken = hashToken(token);
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        const sessionExists = await this.redisService.redisClient.hget(
+            key,
+            hashedToken
+        );
+        return sessionExists === null;
     }
 
-    async handleSession(userId: string, token: string): Promise<void> {
-        // Add token to session list, evict oldest if limit is exceeded
+    async handleSession(userId: string, token: string, deviceInfo: IDeviceInfo): Promise<void> {
+        const hashedToken = hashToken(token);
+        const key = `${RedisPrefix.SESSION}:${userId}`;
+        const sessionMeta = JSON.stringify(deviceInfo);
+        await this.redisService.redisClient.hset(key, hashedToken, sessionMeta);
     }
 }
 
-// export const getAuthStrategy = (strategyType: StrategyType) => {
-//     switch (strategyType) {
-//         case StrategyType.BLACKLISTING:
-//             return new BlacklistingStrategy();
-//         case StrategyType.ONE_SESSION:
-//             return new OneSessionStrategy();
-//         case StrategyType.N_SESSIONS:
-//             return new NSessionsStrategy();
-//         default:
-//             return new BlacklistingStrategy();
-//     }
-// };
+export const getAuthStrategy = (strategyType: StrategyType, redisService: RedisService) => {
+    switch (strategyType) {
+        case StrategyType.BLACKLISTING:
+            return new BlacklistingStrategy(redisService);
+        case StrategyType.ONE_SESSION:
+            return new OneSessionStrategy(redisService);
+        case StrategyType.N_SESSIONS:
+            return new NSessionsStrategy(redisService);
+        default:
+            return new BlacklistingStrategy(redisService);
+    }
+};
