@@ -11,7 +11,7 @@ export const UserMessages = {
         NotFound: 'User not found.',
         IncorrectPassword: 'Incorrect password.',
         IncorrectOldPassword: 'Incorrect old password.',
-        SameAsOldPassword: 'Old and new passwords must be different.',
+        PasswordConflict: 'New password must be different from the old password.',
         PasswordAlreadyUpdated: 'Password has already been updated.',
         PasswordUpdateError: 'Error updating password.',
         CreateError: 'Failed to create user.',

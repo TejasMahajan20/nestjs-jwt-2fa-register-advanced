@@ -28,7 +28,7 @@ export class AuthService {
     private readonly maxSessions = parseInt(process.env.MAX_SESSIONS || '3', 10);
     private readonly maxPasswordAttempts = parseInt(process.env.MAX_PASSWORD_ATTEMPTS || '3', 10);
     private readonly maxResetAttempts = parseInt(process.env.MAX_RESET_ATTEMPTS || '3', 10);
-    private readonly maxOtpAttempts = parseInt(process.env.MAX_OTP_ATTEMPTS || '3', 10);
+    private readonly maxResendOtpAttempts = parseInt(process.env.MAX_OTP_ATTEMPTS || '3', 10);
 
     constructor(
         private readonly jwtService: JwtService,
@@ -147,6 +147,12 @@ export class AuthService {
             throw new BadRequestException(OtpMessages.Error.NotVerified)
         };
 
+        // Validate user password with stored hashed password
+        const isMatch = await this.passwordService.comparePasswords(resetPasswordDto.newPassword, userEntity.password);
+        if (!isMatch) {
+            throw new BadRequestException(UserMessages.Error.PasswordConflict);
+        }
+
         // Hashed password before storing into database
         const hashPassword = await this.passwordService.hashPassword(resetPasswordDto.newPassword);
 
@@ -251,6 +257,8 @@ export class AuthService {
             }
         }
 
+        await this.canResendOtp(userEntity.uuid);
+
         await this.upsertOtp(userEntity);
 
         return new HttpResponseDto(OtpMessages.Success.OtpSent);
@@ -289,6 +297,10 @@ export class AuthService {
         if (userEntity.isForgot) {
             return new HttpResponseDto(OtpMessages.Success.VerifiedAndReset);
         }
+
+        // Reset resend otp attempts 
+        await this.redisService.delete(RedisPrefix.RESEND_OTP_ATTEMPTS, userEntity.uuid);
+        await this.redisService.delete(RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS, userEntity.uuid);
 
         // Generate jwt access token for user payload
         const payload = {
@@ -384,6 +396,34 @@ export class AuthService {
         return result === BLACKLISTED;
     }
 
+    async canResendOtp(userId: string): Promise<void> {
+        // Use INCR and set expiry atomically if it's the first attempt
+        const redisKey = `${RedisPrefix.RESEND_OTP_ATTEMPTS}:${userId}`;
+        const attempts = await this.redisService.redisClient.incr(redisKey);
+
+        if (attempts === 1) {
+            // Set expiry only on the first creation
+            await this.redisService.redisClient.expire(redisKey, RedisExpiry.ONE_DAY);
+        }
+
+        if (attempts >= this.maxResendOtpAttempts) {
+            throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again later.`);
+        }
+    }
+
+    async validateResendOtpAttempts(userId: string): Promise<void> {
+        // const ttl = await this.redisService.redisClient.ttl(`${RedisPrefix.RESEND_OTP_ATTEMPTS}:${userId}`);
+        // if (ttl > 0) {
+        //     throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again again after ${Math.ceil(ttl / 60)} minutes.`);
+        // }
+
+        const attempts = +(await this.redisService.get(RedisPrefix.RESEND_OTP_ATTEMPTS, userId)) || 0;
+
+        if (attempts >= this.maxPasswordAttempts) {
+            throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again later.`);
+        }
+    }
+
     async handlePasswordAttempts(userId: string): Promise<void> {
         // Use INCR and set expiry atomically if it's the first attempt
         const redisKey = `${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`;
@@ -412,9 +452,9 @@ export class AuthService {
         }
     }
 
-    async canResetPassword(userId : string) : Promise<void> {
-        const redisKey = `${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`;
-        const resetAttempts = await this.redisService.redisClient.incr(`${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`);
+    async canResetPassword(userId: string): Promise<void> {
+        const redisKey = `${RedisPrefix.RESET_PASSWORD_ATTEMPTS}:${userId}`;
+        const resetAttempts = await this.redisService.redisClient.incr(`${RedisPrefix.RESET_PASSWORD_ATTEMPTS}:${userId}`);
 
         if (resetAttempts === 1) {
             await this.redisService.redisClient.expire(redisKey, RedisExpiry.ONE_DAY);
