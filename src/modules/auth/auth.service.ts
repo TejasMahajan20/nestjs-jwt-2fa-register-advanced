@@ -18,11 +18,17 @@ import { RedisPrefix } from 'src/common/enum/redis-prefix.enum';
 import { BLACKLISTED } from './constants/variables.constant';
 import { getJwtExpiry, hashToken } from './utils/helpers.util';
 import { IDeviceInfo } from './interfaces/device-info.interface';
+import { RedisExpiry } from 'src/common/enum/redis-expiry.enum';
+import { ConfigService } from '@nestjs/config';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
     private readonly logger = new Logger(AuthService.name);
     private readonly maxSessions = parseInt(process.env.MAX_SESSIONS || '3', 10);
+    private readonly maxPasswordAttempts = parseInt(process.env.MAX_PASSWORD_ATTEMPTS || '3', 10);
+    private readonly maxResetAttempts = parseInt(process.env.MAX_RESET_ATTEMPTS || '3', 10);
+    private readonly maxOtpAttempts = parseInt(process.env.MAX_OTP_ATTEMPTS || '3', 10);
 
     constructor(
         private readonly jwtService: JwtService,
@@ -71,6 +77,9 @@ export class AuthService {
 
         this.isEmailVerified(userEntity?.isEmailVerified);
 
+        // Validate password attempts
+        await this.validatePasswordAttempts(userEntity.uuid);
+
         // Remove all logged-in session checkbox was ticked
         // Step to Implement N-Session-at-a-Time
         if (signInUserDto['removeAllSessions']) {
@@ -85,6 +94,7 @@ export class AuthService {
         // Validate user password with stored hashed password
         const isMatch = await this.passwordService.comparePasswords(signInUserDto.password, userEntity.password);
         if (!isMatch) {
+            await this.handlePasswordAttempts(userEntity.uuid);
             throw new BadRequestException(UserMessages.Error.IncorrectPassword);
         }
 
@@ -118,6 +128,8 @@ export class AuthService {
 
         this.isEmailVerified(userEntity?.isEmailVerified);
 
+        await this.canResetPassword(userEntity.uuid);
+
         // Mark 'isForget' to true, to allow user to set password instead of jwt token
         await this.userService.update({ uuid: userEntity.uuid }, { isForgot: true });
 
@@ -126,7 +138,7 @@ export class AuthService {
         return new HttpResponseDto(OtpMessages.Success.OtpSent);
     }
 
-    async resetPassword(resetPasswordDto: SignInUserDto) {
+    async resetPassword(resetPasswordDto: ResetPasswordDto) {
         // Validate user already exist or not?
         const userEntity = await this.userService.validateUserByEmail(resetPasswordDto.email);
 
@@ -136,7 +148,7 @@ export class AuthService {
         };
 
         // Hashed password before storing into database
-        const hashPassword = await this.passwordService.hashPassword(resetPasswordDto.password);
+        const hashPassword = await this.passwordService.hashPassword(resetPasswordDto.newPassword);
 
         await this.userService.update(
             { uuid: userEntity.uuid },
@@ -145,6 +157,9 @@ export class AuthService {
                 isLoggedBefore: true
             }
         );
+
+        await this.redisService.delete(RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS, userEntity.uuid);
+        await this.redisService.delete(RedisPrefix.RESET_PASSWORD_ATTEMPTS, userEntity.uuid);
 
         return new HttpResponseDto(UserMessages.Success.PasswordUpdated);
     }
@@ -329,7 +344,6 @@ export class AuthService {
         return sessionExists === null;
     }
 
-
     // Get the length of a Redis hash
     async getSessionCount(userId: string): Promise<number> {
         const key = `${RedisPrefix.SESSION}:${userId}`;
@@ -368,5 +382,46 @@ export class AuthService {
         const hashedToken = hashToken(token);
         const result = await this.redisService.get(RedisPrefix.BLACKLISTED_TOKEN, hashedToken);
         return result === BLACKLISTED;
+    }
+
+    async handlePasswordAttempts(userId: string): Promise<void> {
+        // Use INCR and set expiry atomically if it's the first attempt
+        const redisKey = `${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`;
+        const attempts = await this.redisService.redisClient.incr(redisKey);
+
+        if (attempts === 1) {
+            // Set expiry only on the first creation
+            await this.redisService.redisClient.expire(redisKey, RedisExpiry.ONE_DAY);
+        }
+
+        if (attempts >= this.maxPasswordAttempts) {
+            throw new ForbiddenException("Account locked due to too many incorrect attempts. Please try again later.");
+        }
+    }
+
+    async validatePasswordAttempts(userId: string): Promise<void> {
+        // const ttl = await this.redisService.redisClient.ttl(`${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`);
+        // if (ttl > 0) {
+        //     throw new ForbiddenException(`Your account is locked. Please try again after ${Math.ceil(ttl / 60)} minutes.`);
+        // }
+
+        const attempts = +(await this.redisService.get(RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS, userId)) || 0;
+
+        if (attempts >= this.maxPasswordAttempts) {
+            throw new ForbiddenException("Your account is locked due to too many incorrect attempts. Please reset your password or try again later.");
+        }
+    }
+
+    async canResetPassword(userId : string) : Promise<void> {
+        const redisKey = `${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`;
+        const resetAttempts = await this.redisService.redisClient.incr(`${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`);
+
+        if (resetAttempts === 1) {
+            await this.redisService.redisClient.expire(redisKey, RedisExpiry.ONE_DAY);
+        }
+
+        if (resetAttempts >= this.maxResetAttempts) {
+            throw new ForbiddenException("Password reset limit reached. Please try again later.");
+        }
     }
 }

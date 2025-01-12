@@ -14,6 +14,7 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Request } from "express";
 import { getIpAddress, getUserAgent } from './utils/helpers.util';
 import { IDeviceInfo } from './interfaces/device-info.interface';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Controller()
 export class AuthController {
@@ -148,7 +149,7 @@ export class AuthController {
         summary: 'Reset old password.',
         description: 'This endpoint will prompt you email and new password to reset your old password.'
     })
-    async resetPassword(@Body() resetPasswordDto: SignInUserDto) {
+    async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
         return await this.authService.resetPassword(resetPasswordDto);
     }
 
