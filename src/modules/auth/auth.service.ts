@@ -298,7 +298,7 @@ export class AuthService {
             return new HttpResponseDto(OtpMessages.Success.VerifiedAndReset);
         }
 
-        // Reset resend otp attempts 
+        // Reset resend otp attempts , incorrect password attempts
         await this.redisService.delete(RedisPrefix.RESEND_OTP_ATTEMPTS, userEntity.uuid);
         await this.redisService.delete(RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS, userEntity.uuid);
 
@@ -396,34 +396,6 @@ export class AuthService {
         return result === BLACKLISTED;
     }
 
-    async canResendOtp(userId: string): Promise<void> {
-        // Use INCR and set expiry atomically if it's the first attempt
-        const redisKey = `${RedisPrefix.RESEND_OTP_ATTEMPTS}:${userId}`;
-        const attempts = await this.redisService.redisClient.incr(redisKey);
-
-        if (attempts === 1) {
-            // Set expiry only on the first creation
-            await this.redisService.redisClient.expire(redisKey, RedisExpiry.ONE_DAY);
-        }
-
-        if (attempts >= this.maxResendOtpAttempts) {
-            throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again later.`);
-        }
-    }
-
-    async validateResendOtpAttempts(userId: string): Promise<void> {
-        // const ttl = await this.redisService.redisClient.ttl(`${RedisPrefix.RESEND_OTP_ATTEMPTS}:${userId}`);
-        // if (ttl > 0) {
-        //     throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again again after ${Math.ceil(ttl / 60)} minutes.`);
-        // }
-
-        const attempts = +(await this.redisService.get(RedisPrefix.RESEND_OTP_ATTEMPTS, userId)) || 0;
-
-        if (attempts >= this.maxPasswordAttempts) {
-            throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again later.`);
-        }
-    }
-
     async handlePasswordAttempts(userId: string): Promise<void> {
         // Use INCR and set expiry atomically if it's the first attempt
         const redisKey = `${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`;
@@ -440,12 +412,15 @@ export class AuthService {
     }
 
     async validatePasswordAttempts(userId: string): Promise<void> {
-        // const ttl = await this.redisService.redisClient.ttl(`${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`);
+        const redisKey = `${RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS}:${userId}`;
+
+        // const ttl = await this.redisService.redisClient.ttl(redisKey);
         // if (ttl > 0) {
         //     throw new ForbiddenException(`Your account is locked. Please try again after ${Math.ceil(ttl / 60)} minutes.`);
         // }
 
-        const attempts = +(await this.redisService.get(RedisPrefix.INCORRECT_PASSWORD_ATTEMPTS, userId)) || 0;
+        // Check the current count
+        const attempts = parseInt(await this.redisService.redisClient.get(redisKey), 10) || 0;
 
         if (attempts >= this.maxPasswordAttempts) {
             throw new ForbiddenException("Your account is locked due to too many incorrect attempts. Please reset your password or try again later.");
@@ -454,14 +429,47 @@ export class AuthService {
 
     async canResetPassword(userId: string): Promise<void> {
         const redisKey = `${RedisPrefix.RESET_PASSWORD_ATTEMPTS}:${userId}`;
-        const resetAttempts = await this.redisService.redisClient.incr(`${RedisPrefix.RESET_PASSWORD_ATTEMPTS}:${userId}`);
 
-        if (resetAttempts === 1) {
-            await this.redisService.redisClient.expire(redisKey, RedisExpiry.ONE_DAY);
+        // Check the current count
+        const attempts = parseInt(await this.redisService.redisClient.get(redisKey), 10) || 0;
+
+        // const ttl = await this.redisService.redisClient.ttl(redisKey);
+        // if (ttl > 0) {
+        //     throw new ForbiddenException(`Password reset limit reached. Please try again after ${Math.ceil(ttl / 60)} minutes.`);
+        // }
+
+        if (attempts >= this.maxResetAttempts) {
+            throw new ForbiddenException("Password reset limit reached. Please try again later.");
         }
 
-        if (resetAttempts >= this.maxResetAttempts) {
-            throw new ForbiddenException("Password reset limit reached. Please try again later.");
+        // Increment attempts and set expiry if this is the first attempt
+        if (attempts === 0) {
+            await this.redisService.redisClient.set(redisKey, 1, 'EX', RedisExpiry.ONE_DAY);
+        } else {
+            await this.redisService.redisClient.incr(redisKey);
+        }
+    }
+
+    async canResendOtp(userId: string): Promise<void> {
+        const redisKey = `${RedisPrefix.RESEND_OTP_ATTEMPTS}:${userId}`;
+
+        // Check the current count
+        const attempts = parseInt(await this.redisService.redisClient.get(redisKey), 10) || 0;
+
+        // const ttl = await this.redisService.redisClient.ttl(redisKey);
+        // if (ttl > 0) {
+        //     throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again after ${Math.ceil(ttl / 60)} minutes.`);
+        // }
+
+        if (attempts >= this.maxResendOtpAttempts) {
+            throw new ForbiddenException(`Maximum OTP resend attempts reached. Please try again later.`);
+        }
+
+        // Increment attempts and set expiry if this is the first attempt
+        if (attempts === 0) {
+            await this.redisService.redisClient.set(redisKey, 1, 'EX', RedisExpiry.ONE_HOUR);
+        } else {
+            await this.redisService.redisClient.incr(redisKey);
         }
     }
 }
